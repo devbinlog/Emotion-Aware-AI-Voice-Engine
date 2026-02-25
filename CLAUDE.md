@@ -6,11 +6,11 @@ Claude Code가 이 프로젝트에서 작업할 때 반드시 따르는 규칙.
 
 ## 문서 업데이트 규칙 (필수)
 
-**새로운 기능 완성, 버그 수정, 성능 개선, 디자인 변경이 있을 때마다 반드시 아래를 갱신한다:**
+새로운 기능 완성, 버그 수정, 성능 개선, 디자인 변경이 있을 때마다 반드시 아래를 갱신한다:
 
-1. **`DEVLOG.md`** (루트) — 새 항목 추가 (날짜, 변경 내용, 해결한 문제, 결과)
-2. **`README.md`** (루트) — 최신 기능/상태 반영
-3. **`reports/TROUBLESHOOTING.md`** — 새 오류와 해결 과정 추가 (해당하는 경우)
+1. `DEVLOG.md` (루트) — 새 항목 추가 (날짜, 변경 내용, 해결한 문제, 결과)
+2. `README.md` (루트) — 최신 기능/상태 반영
+3. `reports/TROUBLESHOOTING.md` — 새 오류와 해결 과정 추가 (해당하는 경우)
 
 이 규칙은 선택이 아니다. 코드 변경과 문서 업데이트는 세트다.
 
@@ -33,7 +33,7 @@ KMP_DUPLICATE_LIB_OK=TRUE HF_HUB_OFFLINE=1 uvicorn app.main:app --host 0.0.0.0 -
 ### STT — 서브프로세스 격리
 - faster-whisper (CTranslate2)는 uvicorn asyncio 이벤트 루프와 충돌 (macOS SIGABRT)
 - `backend/stt_worker_process.py`를 별도 프로세스로 실행, stdin/stdout JSON 파이프 통신
-- **절대로** asyncio 컨텍스트에서 직접 WhisperModel 초기화하지 말 것
+- 절대로 asyncio 컨텍스트에서 직접 WhisperModel 초기화하지 말 것
 
 ### WebM 오디오 디코딩
 - MediaRecorder Blob을 청크별로 `decodeAudioData` 하지 말 것 (WebM은 연속 스트림)

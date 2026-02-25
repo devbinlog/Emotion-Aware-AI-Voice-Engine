@@ -2,7 +2,7 @@
 
 ## Measurement Method
 
-**End-to-end wall clock** — WebSocket `end_stream` 수신부터 마지막 `audio_chunk` 전송까지.
+End-to-end wall clock — WebSocket `end_stream` 수신부터 마지막 `audio_chunk` 전송까지.
 
 ```
 t_start  = WS "end_stream" 수신 시점
@@ -42,7 +42,7 @@ total_ms   = t_tts  - t_start
 | Emotion | 55 | 80 |
 | LLM (템플릿) | <1 | <1 |
 | TTS (say) | 380 | 520 |
-| **합계** | **~630** | **~870** |
+| 합계 | ~630 | ~870 |
 
 ### 측정 결과 (5초 입력)
 
@@ -53,7 +53,7 @@ total_ms   = t_tts  - t_start
 | Emotion | 75 | 110 |
 | LLM (템플릿) | <1 | <1 |
 | TTS (say) | 480 | 640 |
-| **합계** | **~870** | **~1,160** |
+| 합계 | ~870 | ~1,160 |
 
 ---
 
@@ -67,7 +67,7 @@ total_ms   = t_tts  - t_start
 | STT (small) | 420 | 510 |
 | Emotion | 310 | 390 |
 | TTS (VITS) | 950 | 1,250 |
-| **합계** | **1,720** | **2,200** |
+| 합계 | 1,720 | 2,200 |
 
 ---
 

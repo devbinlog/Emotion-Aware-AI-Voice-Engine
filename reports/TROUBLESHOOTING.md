@@ -25,7 +25,7 @@ ERROR: Failed building wheel for llvmlite
 | MFCC | `librosa.feature.mfcc` | DCT 행렬 곱 + `scipy.fft.fft` |
 | Prosody 후처리 | `librosa.effects.time_stretch` | `scipy.signal.resample_poly` 근사 |
 
-**관련 파일**: `backend/app/services/emotion_service.py`, `audio_io.py`, `tts_service.py`
+관련 파일: `backend/app/services/emotion_service.py`, `audio_io.py`, `tts_service.py`
 
 ---
 
@@ -83,10 +83,10 @@ DEVICE: str = _detect_device()
 
 ### 원인 분석 과정
 
-**Step 1**: `vad_service.py` 최상위 `import torch` 제거 → 여전히 crash
-**Step 2**: `KMP_DUPLICATE_LIB_OK=TRUE` 환경변수 외부 설정 → 여전히 crash
-**Step 3**: `HF_HUB_OFFLINE=1` 없이 테스트 → OMP Error #15, exit code 134 확인
-**Step 4**: 독립 Python 스크립트에서 whisper-tiny 테스트 → **정상 작동**
+Step 1: `vad_service.py` 최상위 `import torch` 제거 → 여전히 crash
+Step 2: `KMP_DUPLICATE_LIB_OK=TRUE` 환경변수 외부 설정 → 여전히 crash
+Step 3: `HF_HUB_OFFLINE=1` 없이 테스트 → OMP Error #15, exit code 134 확인
+Step 4: 독립 Python 스크립트에서 whisper-tiny 테스트 → 정상 작동
 
 ```
 Loading...
@@ -94,13 +94,13 @@ Transcribing...
 OK - lang: ko   ← 독립 실행 시 완벽하게 동작
 ```
 
-**Step 5**: uvicorn 내부에서만 crash 확인 → **asyncio 이벤트 루프와 CTranslate2 충돌** 진단
+Step 5: uvicorn 내부에서만 crash 확인 → asyncio 이벤트 루프와 CTranslate2 충돌 진단
 
 ### 근본 원인
-CTranslate2 (faster-whisper의 내부 엔진)는 자체 스레드 풀과 OpenMP 런타임을 초기화한다. uvicorn의 asyncio 이벤트 루프 스레드에서 CTranslate2를 직접 초기화하면, 두 런타임의 스레드 관리 방식이 충돌하여 **SIGABRT** (exit 134)가 발생한다. macOS 특정 현상.
+CTranslate2 (faster-whisper의 내부 엔진)는 자체 스레드 풀과 OpenMP 런타임을 초기화한다. uvicorn의 asyncio 이벤트 루프 스레드에서 CTranslate2를 직접 초기화하면, 두 런타임의 스레드 관리 방식이 충돌하여 SIGABRT (exit 134)가 발생한다. macOS 특정 현상.
 
 ### 해결책
-**STT를 완전히 별도의 서브프로세스로 격리**
+STT를 완전히 별도의 서브프로세스로 격리
 
 ```
 [uvicorn 프로세스]                    [stt_worker_process.py]
@@ -114,12 +114,12 @@ CTranslate2 (faster-whisper의 내부 엔진)는 자체 스레드 풀과 OpenMP 
 `stt_worker_process.py`: stdin/stdout 파이프로 통신하는 영구 워커 프로세스.
 `stt_service.py`: `subprocess.Popen`으로 워커를 기동하고, 라인 단위 JSON으로 오디오를 전송하고 결과를 수신.
 
-**결과**: HTTP 200 응답, 서버 크래시 없음 ✅
+결과: HTTP 200 응답, 서버 크래시 없음 ✅
 
 ### 부수적으로 발견된 문제
 워커 스크립트를 `backend/app/utils/` 안에 두면, Python이 스크립트 디렉토리를 `sys.path`에 추가해서 같은 디렉토리의 `logging.py`가 표준 라이브러리 `logging`을 shadow함 → `av` 라이브러리 import 실패.
 
-**해결**: 워커 스크립트를 `backend/stt_worker_process.py` (루트)로 이동.
+해결: 워커 스크립트를 `backend/stt_worker_process.py` (루트)로 이동.
 
 ---
 
@@ -214,13 +214,13 @@ KMP_DUPLICATE_LIB_OK=TRUE HF_HUB_OFFLINE=1 \
 
 ### 원인 분석
 
-**이전 구현 방식**:
+이전 구현 방식:
 ```
 MediaRecorder → 500ms마다 ondataavailable → WebM 청크 → ArrayBuffer → decodeAudioData(청크별) → base64 → WS 전송
 → stop 호출 직후 end_stream 전송
 ```
 
-**문제**: WebM/Opus는 연속적인 스트림 포맷이다. 개별 500ms 청크는 각각 WebM 헤더를 가지고 있지 않아 `decodeAudioData`가 각 청크를 독립적으로 디코딩하려 하면 실패한다. 또한 `decodeAudioData`는 비동기 작업이므로, `recorder.stop()` 직후에 `end_stream`을 보내면 서버가 `end_stream`을 먼저 수신하고 빈 오디오 버퍼로 처리한다.
+문제: WebM/Opus는 연속적인 스트림 포맷이다. 개별 500ms 청크는 각각 WebM 헤더를 가지고 있지 않아 `decodeAudioData`가 각 청크를 독립적으로 디코딩하려 하면 실패한다. 또한 `decodeAudioData`는 비동기 작업이므로, `recorder.stop()` 직후에 `end_stream`을 보내면 서버가 `end_stream`을 먼저 수신하고 빈 오디오 버퍼로 처리한다.
 
 ```
 [클라이언트]              [서버]
@@ -234,7 +234,7 @@ recorder.stop()
 
 ### 해결
 
-**새 구현 방식**: 모든 Blob을 누적한 뒤 하나의 완전한 WebM 파일로 합쳐서 디코딩.
+새 구현 방식: 모든 Blob을 누적한 뒤 하나의 완전한 WebM 파일로 합쳐서 디코딩.
 
 ```typescript
 // 녹음 중: Blob만 누적 (디코딩 X)
@@ -253,7 +253,7 @@ ws.send(JSON.stringify({ type: 'audio_chunk', data: float32ToBase64(pcm) }));
 ws.send(JSON.stringify({ type: 'end_stream' }));  // 오디오 전송 완료 후 전송
 ```
 
-**결과**: transcript가 정상적으로 채워지고 LLM 응답이 음성 내용을 기반으로 생성됨 ✅
+결과: transcript가 정상적으로 채워지고 LLM 응답이 음성 내용을 기반으로 생성됨 ✅
 
 ---
 
@@ -266,9 +266,9 @@ ws.send(JSON.stringify({ type: 'end_stream' }));  // 오디오 전송 완료 후
 ### 원인
 두 가지 원인:
 
-1. **F0 자기상관 실패**: 마이크 녹음에서 묵음 프레임 비율이 높아 autocorrelation이 F0=0을 반환. 이 경우 모든 피치 기반 규칙(R1, R2, R4)이 발동되지 않고 `neutral` 베이스라인(0.15)이 우세.
+1. F0 자기상관 실패: 마이크 녹음에서 묵음 프레임 비율이 높아 autocorrelation이 F0=0을 반환. 이 경우 모든 피치 기반 규칙(R1, R2, R4)이 발동되지 않고 `neutral` 베이스라인(0.15)이 우세.
 
-2. **임계값이 과도하게 엄격**: 원래 임계값은 녹음실 수준 음성을 기준으로 설정됨. 실제 마이크 입력은 그보다 낮은 RMS, F0를 가짐.
+2. 임계값이 과도하게 엄격: 원래 임계값은 녹음실 수준 음성을 기준으로 설정됨. 실제 마이크 입력은 그보다 낮은 RMS, F0를 가짐.
 
 ### 해결
 
@@ -294,4 +294,4 @@ if not f0_reliable:
 probs["neutral"] = 0.10  # 0.15 → 0.10
 ```
 
-**결과**: 실제 마이크 입력에서 감정이 다양하게 감지됨 ✅
+결과: 실제 마이크 입력에서 감정이 다양하게 감지됨 ✅

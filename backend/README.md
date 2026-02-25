@@ -155,7 +155,7 @@ Override `EmotionClassifier.classify_audio` or `classify_text` in
 
 ## TTS Engine Selection
 
-Default: **Coqui VITS** (CPU-safe, pure pip).
+Default: Coqui VITS (CPU-safe, pure pip).
 
 Change `TTS_ENGINE` in `.env`:
 

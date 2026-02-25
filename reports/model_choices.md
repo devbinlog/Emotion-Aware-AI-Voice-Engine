@@ -12,13 +12,13 @@
 | CPU-only 실용성 | ✅ 최고 | ✅ 가능 | ✅ 최고 | ❌ |
 | 목소리 선택 | 시스템 목소리 전체 | 단일 화자 | 모델별 화자 | 다화자 |
 
-### 현재 설정: **macOS say (Yuna)**
+### 현재 설정: macOS say (Yuna)
 
-**이유**:
-1. **설치 불필요** — macOS 내장, 별도 pip 패키지 없음
-2. **한국어 지원** — Yuna(ko_KR) 내장 음성 제공
-3. **가장 빠름** — 200–500ms, CPU-only 환경에서 최고 속도
-4. **목소리 선택** — `/api/voices`로 한국어/영어/일본어/중국어 음성 조회 및 변경 가능
+이유:
+1. 설치 불필요 — macOS 내장, 별도 pip 패키지 없음
+2. 한국어 지원 — Yuna(ko_KR) 내장 음성 제공
+3. 가장 빠름 — 200–500ms, CPU-only 환경에서 최고 속도
+4. 목소리 선택 — `/api/voices`로 한국어/영어/일본어/중국어 음성 조회 및 변경 가능
 
 ### 엔진 교체 방법
 
@@ -34,16 +34,16 @@ TTS_ENGINE=xtts      # XTTS v2 (다국어, GPU 필요)
 
 ## STT: faster-whisper
 
-현재 설정: **`tiny`, int8, CPU** (서브프로세스 격리)
+현재 설정: `tiny`, int8, CPU (서브프로세스 격리)
 
 | 모델 | CPU 지연 (5s) | WER(KO) | 크기 |
 |------|:------------:|:-------:|:----:|
-| **tiny** | ~180ms | ~22% | 39 MB |
+| tiny | ~180ms | ~22% | 39 MB |
 | base | ~350ms | ~16% | 74 MB |
 | small | ~700ms | ~10% | 244 MB |
 | medium | ~1,800ms | ~7% | 769 MB |
 
-**tiny 선택 이유**: macOS에서 CTranslate2 + asyncio 충돌 문제로 서브프로세스 격리가 필요하며, tiny 모델이 가장 빠르게 초기화되고 한국어 일상 대화에서 충분한 정확도를 보임.
+tiny 선택 이유: macOS에서 CTranslate2 + asyncio 충돌 문제로 서브프로세스 격리가 필요하며, tiny 모델이 가장 빠르게 초기화되고 한국어 일상 대화에서 충분한 정확도를 보임.
 
 > 정확도 향상이 필요하면 `WHISPER_MODEL_SIZE=small`로 변경.
 
@@ -74,9 +74,9 @@ macOS에서 CTranslate2를 asyncio 스레드 내에서 초기화하면 SIGABRT �
 
 | 순위 | 엔진 | 조건 | 지연 |
 |------|------|------|------|
-| 1 | **Ollama** (llama3.2) | localhost:11434 동작 중 | ~500ms–2s |
-| 2 | **Anthropic Claude** (haiku) | `ANTHROPIC_API_KEY` 설정 | ~300ms–1s |
-| 3 | **템플릿 응답** | 항상 사용 가능 | <1ms |
+| 1 | Ollama (llama3.2) | localhost:11434 동작 중 | ~500ms–2s |
+| 2 | Anthropic Claude (haiku) | `ANTHROPIC_API_KEY` 설정 | ~300ms–1s |
+| 3 | 템플릿 응답 | 항상 사용 가능 | <1ms |
 
 ### 멀티턴 컨텍스트
 

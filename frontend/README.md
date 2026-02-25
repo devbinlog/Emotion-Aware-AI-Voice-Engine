@@ -46,7 +46,7 @@ src/
 ### WebSocket 모드 (마이크 녹음)
 
 1. 마이크 버튼 클릭 → `getUserMedia` + WebSocket 연결
-2. `config` 메시지로 voice, language, **대화 히스토리** 전송
+2. `config` 메시지로 voice, language, 대화 히스토리 전송
 3. MediaRecorder 500ms 간격으로 Blob 누적 (디코딩 보류)
 4. 정지 버튼 → 모든 Blob을 하나의 완전한 WebM으로 합쳐 `decodeAudioData`
 5. Float32 PCM → base64 → `audio_chunk` 전송 → `end_stream` 전송

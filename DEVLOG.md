@@ -12,8 +12,42 @@
 - 상세 트러블슈팅은 `reports/TROUBLESHOOTING.md` 에, 기술 선택 근거는 `reports/model_choices.md` 에 작성한다.
 
 ---
+## 음성 파이프라인 기초 구현 + 초기 오류 해결
 
-## [2025-08 v2] 음성 입력 안정성 + 분석 결과 유지
+### 아이디어의 시작
+
+동기: 사람이 대화할 때 단순히 "무엇을 말했는가" 뿐 아니라 "어떤 감정으로 말했는가"가 중요하다. 기존 챗봇은 텍스트만 처리하고 비언어적 신호(목소리 떨림, 높낮이, 속도)를 무시한다. 이 프로젝트는 음성의 감정을 인식하고 그 감정에 맞는 목소리 톤으로 응답하는 AI를 만드는 것이 목표다.
+
+핵심 아이디어:
+1. 마이크 입력에서 실시간으로 감정 감지
+2. 감지된 감정을 LLM 프롬프트와 TTS 음성 파라미터 양쪽에 반영
+3. 브라우저에서 즉시 인터랙션 가능한 UI
+
+### 기술 스택 선택 근거
+
+| 컴포넌트 | 선택 | 이유 |
+|----------|------|------|
+| Backend | FastAPI | 비동기 네이티브, WebSocket 지원, 자동 OpenAPI |
+| VAD | silero-vad | 5–15ms 처리, 추가 패키지 없음, graceful fallback |
+| STT | faster-whisper (tiny, int8) | OpenAI Whisper의 CTranslate2 최적화판, 한국어 지원, CPU 실행 |
+| 감정 오디오 | numpy + scipy | librosa 의존성 없음 (llvmlite 빌드 실패 이슈), GPU 불필요, 완전 해석 가능 |
+| 감정 텍스트 | 키워드 렉시콘 (KO+EN) | 초기 MVP, KoBERT/klue-bert로 업그레이드 경로 명확 |
+| LLM | Ollama → Claude API → 템플릿 | 로컬 우선, API 키 없어도 동작, 멀티턴 지원 |
+| TTS | macOS `say` (Yuna, ko_KR) | 한국어 내장, 설치 불필요, 200–500ms |
+| TTS 후처리 | scipy resample_poly | librosa 없이 pietch/time-stretch 구현 |
+| Frontend | Next.js 14 + TailwindCSS + Framer Motion | React 기반, App Router, 애니메이션 내장 |
+| 스트리밍 | WebSocket + JSON/base64 | 저지연 양방향, 브라우저 네이티브 |
+
+### 초기 구현
+
+- FastAPI WebSocket 엔드포인트 `/ws/voice`
+- `VADService` → `STTService` → `EmotionService` → `TTSService` 순차 파이프라인
+- 브라우저 MediaRecorder → float32 PCM → base64 → WebSocket 전송
+- 감정 분석: F0 자기상관 + RMS + ZCR + MFCC × 13 + 발화속도
+- prosody 후처리: 감정별 pietch/rate/energy 조정
+- 
+
+## 음성 입력 안정성 + 분석 결과 유지
 
 ### 변경 내용
 
@@ -37,7 +71,7 @@ Frontend
 
 ---
 
-## [2025-08] 멀티턴 대화 + 라이트 UI + STT 레이스 컨디션 수정
+## 멀티턴 대화 + 라이트 UI + STT 레이스 컨디션 수정
 
 ### 변경 내용
 
@@ -71,42 +105,6 @@ Backend
 - 음성 녹음 → STT → 감정 분석 → LLM 응답 → TTS 전체 파이프라인 정상 작동
 - 대화 히스토리가 WebSocket 재연결에 걸쳐 유지되어 멀티턴 대화 가능
 - 오디오 재생 완료 후 자동으로 다음 발화 대기 상태로 전환
-
----
-
-## [2025-07] 음성 파이프라인 기초 구현 + 초기 오류 해결
-
-### 아이디어의 시작
-
-동기: 사람이 대화할 때 단순히 "무엇을 말했는가" 뿐 아니라 "어떤 감정으로 말했는가"가 중요하다. 기존 챗봇은 텍스트만 처리하고 비언어적 신호(목소리 떨림, 높낮이, 속도)를 무시한다. 이 프로젝트는 음성의 감정을 인식하고 그 감정에 맞는 목소리 톤으로 응답하는 AI를 만드는 것이 목표다.
-
-핵심 아이디어:
-1. 마이크 입력에서 실시간으로 감정 감지
-2. 감지된 감정을 LLM 프롬프트와 TTS 음성 파라미터 양쪽에 반영
-3. 브라우저에서 즉시 인터랙션 가능한 UI
-
-### 기술 스택 선택 근거
-
-| 컴포넌트 | 선택 | 이유 |
-|----------|------|------|
-| Backend | FastAPI | 비동기 네이티브, WebSocket 지원, 자동 OpenAPI |
-| VAD | silero-vad | 5–15ms 처리, 추가 패키지 없음, graceful fallback |
-| STT | faster-whisper (tiny, int8) | OpenAI Whisper의 CTranslate2 최적화판, 한국어 지원, CPU 실행 |
-| 감정 오디오 | numpy + scipy | librosa 의존성 없음 (llvmlite 빌드 실패 이슈), GPU 불필요, 완전 해석 가능 |
-| 감정 텍스트 | 키워드 렉시콘 (KO+EN) | 초기 MVP, KoBERT/klue-bert로 업그레이드 경로 명확 |
-| LLM | Ollama → Claude API → 템플릿 | 로컬 우선, API 키 없어도 동작, 멀티턴 지원 |
-| TTS | macOS `say` (Yuna, ko_KR) | 한국어 내장, 설치 불필요, 200–500ms |
-| TTS 후처리 | scipy resample_poly | librosa 없이 pietch/time-stretch 구현 |
-| Frontend | Next.js 14 + TailwindCSS + Framer Motion | React 기반, App Router, 애니메이션 내장 |
-| 스트리밍 | WebSocket + JSON/base64 | 저지연 양방향, 브라우저 네이티브 |
-
-### 초기 구현
-
-- FastAPI WebSocket 엔드포인트 `/ws/voice`
-- `VADService` → `STTService` → `EmotionService` → `TTSService` 순차 파이프라인
-- 브라우저 MediaRecorder → float32 PCM → base64 → WebSocket 전송
-- 감정 분석: F0 자기상관 + RMS + ZCR + MFCC × 13 + 발화속도
-- prosody 후처리: 감정별 pietch/rate/energy 조정
 
 ### 주요 오류와 해결 과정
 

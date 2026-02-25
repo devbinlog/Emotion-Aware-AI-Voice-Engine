@@ -482,8 +482,4 @@ export ANTHROPIC_API_KEY=sk-ant-...
     └── EXPERIMENT_TEMPLATE.md        실험 보고서 템플릿
 ```
 
----
 
-## 라이선스
-
-MIT

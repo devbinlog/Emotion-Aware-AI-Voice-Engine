@@ -16,6 +16,12 @@
 
 ---
 
+## 데모
+
+<video src="assets/demo.mov" controls width="100%"></video>
+
+---
+
 ## 파이프라인
 
 ```

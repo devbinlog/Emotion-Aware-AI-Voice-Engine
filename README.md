@@ -2,7 +2,9 @@
 
 감정 인식 기반 실시간 대화형 음성 AI 파이프라인
 
-데모영상: 
+## 데모 영상
+
+<video src="assets/demo.mov" controls width="100%"></video>
 
 자유 질문 -> 
 대화 내용에 맞게 답변. 모르는 것이 있으면 인터넷 검색을 통해 생각하고 답변. 
@@ -20,12 +22,6 @@
 
 선택한 TTS 캐릭터(Yuna, Samantha, Kyoko 등)에 따라 응답 언어가 자동으로 결정되고,
 캐릭터 이름으로 자기소개하며 자연스러운 다국어 대화가 가능하다.
-
----
-
-## 데모
-
-<video src="assets/demo.mov" controls width="100%"></video>
 
 ---
 

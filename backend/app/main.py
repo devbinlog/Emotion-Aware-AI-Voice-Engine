@@ -15,6 +15,7 @@ from app.config import settings
 from app.api.routes import router
 from app.api.websocket import ws_router
 from app.utils.logging import setup_logging
+from app.utils.logging import logger
 
 setup_logging(settings.LOG_LEVEL)
 
@@ -41,6 +42,37 @@ app.add_middleware(
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(router,    prefix="/api",  tags=["Pipeline"])
 app.include_router(ws_router,                 tags=["WebSocket"])
+
+
+# ── Startup: pre-warm models ─────────────────────────────────────────────────
+@app.on_event("startup")
+async def _warmup():
+    # 1. STT worker subprocess (runs in thread to avoid blocking event loop)
+    try:
+        from app.api.websocket import _services
+        await asyncio.to_thread(lambda: _services()[1]._load())
+        logger.info("STT: worker pre-loaded")
+    except Exception as e:
+        logger.debug(f"STT: warmup skipped — {e}")
+
+    # 2. Ollama LLM
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post(
+                "http://localhost:11434/api/chat",
+                json={
+                    "model":      "qwen2.5:1.5b",
+                    "messages":   [{"role": "user", "content": "안녕"}],
+                    "stream":     False,
+                    "keep_alive": -1,
+                    "options":    {"num_predict": 20},
+                },
+            )
+            if resp.status_code == 200:
+                logger.info("LLM: Ollama warmed up")
+    except Exception as e:
+        logger.debug(f"LLM: Ollama warmup skipped — {e}")
 
 
 # ── Health ───────────────────────────────────────────────────────────────────

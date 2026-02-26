@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     VAD_MIN_SILENCE_MS: int = 500
 
     # ── STT (faster-whisper) ────────────────────────────────────────────────
-    WHISPER_MODEL_SIZE: str = "tiny"    # tiny | base | small | medium
+    WHISPER_MODEL_SIZE: str = "base"    # tiny | base | small | medium
     WHISPER_COMPUTE_TYPE: str = "int8"
     WHISPER_LANGUAGE: str = "ko"
 

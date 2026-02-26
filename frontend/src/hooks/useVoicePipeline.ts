@@ -38,6 +38,7 @@ function base64ToUint8(b64: string): Uint8Array {
 // ── hook ─────────────────────────────────────────────────────────────────────
 export function useVoicePipeline(voice = 'Yuna', language = 'ko') {
   const [state, setState] = useState<PipelineState>(INITIAL);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
 
   // WebSocket / recording refs
   const wsRef       = useRef<WebSocket | null>(null);
@@ -137,12 +138,23 @@ export function useVoicePipeline(voice = 'Yuna', language = 'ko') {
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation:  false,
+          noiseSuppression:  false,
+          autoGainControl:   false,
+        },
+      });
     } catch {
       patch({ status: 'error', error: '마이크 권한이 필요합니다.' });
       return;
     }
     streamRef.current = stream;
+    setMicStream(stream);
+
+    const track = stream.getAudioTracks()[0];
+    console.log('[MIC] device:', track.label);
+    console.log('[MIC] settings:', JSON.stringify(track.getSettings()));
 
     const ws = new WebSocket(WS);
     wsRef.current = ws;
@@ -179,6 +191,7 @@ export function useVoicePipeline(voice = 'Yuna', language = 'ko') {
   // ── Stop recording — onstop fires after ALL ondataavailable events ───────
   const stopRecording = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop());
+    setMicStream(null);
     patch({ status: 'processing', stage: 'vad' });
 
     const recorder = recorderRef.current;
@@ -195,18 +208,19 @@ export function useVoicePipeline(voice = 'Yuna', language = 'ko') {
       }
 
       try {
-        // Combine ALL blobs → one complete WebM file → decode reliably
+        // Combine ALL blobs → one complete WebM file
+        // Send raw WebM to backend — server decodes with ffmpeg (avoids browser WebAudio bugs)
         const combined = new Blob(blobChunks.current, { type: mimeTypeRef.current });
-        const ab  = await combined.arrayBuffer();
-        const ctx = new AudioContext({ sampleRate: 16000 });
-        const dec = await ctx.decodeAudioData(ab);
-        const pcm = dec.getChannelData(0);
-        ctx.close();
+        const ab       = await combined.arrayBuffer();
+        const bytes    = new Uint8Array(ab);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        const b64 = btoa(bin);
 
         ws.send(JSON.stringify({
-          type:        'audio_chunk',
-          data:        float32ToBase64(pcm),
-          sample_rate: 16000,
+          type:     'audio_chunk',
+          data:     b64,
+          encoding: 'webm',
         }));
       } catch (e) {
         patch({ status: 'error', error: '오디오 처리 실패: ' + (e as Error).message });
@@ -240,6 +254,7 @@ export function useVoicePipeline(voice = 'Yuna', language = 'ko') {
     pendingAi.current  = '';
     wsRef.current?.close();
     streamRef.current?.getTracks().forEach(t => t.stop());
+    setMicStream(null);
     wavChunks.current  = [];
     blobChunks.current = [];
     if (prevUrl.current) { URL.revokeObjectURL(prevUrl.current); prevUrl.current = null; }
@@ -319,5 +334,5 @@ export function useVoicePipeline(voice = 'Yuna', language = 'ko') {
     if (prevUrl.current) URL.revokeObjectURL(prevUrl.current);
   }, []);
 
-  return { state, startRecording, stopRecording, processFile, reset, continueConversation };
+  return { state, micStream, startRecording, stopRecording, processFile, reset, continueConversation };
 }

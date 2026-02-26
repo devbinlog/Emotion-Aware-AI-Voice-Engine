@@ -169,8 +169,8 @@ Ollama가 설치되지 않고 `ANTHROPIC_API_KEY`도 설정되지 않은 경우,
 
 ```bash
 brew install ollama
-ollama serve &          # 백그라운드 실행
-ollama pull llama3.2    # 모델 다운로드 (~2GB)
+ollama serve &              # 백그라운드 실행
+ollama pull qwen2.5:1.5b   # 모델 다운로드 (~1GB, 한국어 최적)
 ```
 
 이후 서버 재시작하면 자동으로 Ollama를 사용.
@@ -200,8 +200,8 @@ KMP_DUPLICATE_LIB_OK=TRUE HF_HUB_OFFLINE=1 \
   nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > logs/server.log 2>&1 &
 ```
 
-첫 번째 STT 요청은 whisper-tiny 워커 프로세스 시작 (~15-20초) 이후 빠름.
-두 번째 요청부터는 워커가 이미 로드되어 있어 STT만의 처리 시간만 소요됨.
+서버 시작 시 STT 워커 + Ollama 모델이 자동으로 사전 로드됨 (startup 이벤트).
+첫 번째 요청부터 STT 및 LLM 지연 없이 처리 가능.
 
 ---
 
@@ -295,3 +295,175 @@ probs["neutral"] = 0.10  # 0.15 → 0.10
 ```
 
 결과: 실제 마이크 입력에서 감정이 다양하게 감지됨 ✅
+
+---
+
+## 10. macOS 브라우저 WebAudio — 무음 PCM 생성 버그
+
+### 증상
+- 마이크를 말해도 서버 로그에 `rms=0.00009` (사실상 무음)
+- macOS 시스템 설정 → 사운드 → 입력에서는 8칸까지 레벨이 정상 표시
+- `transcript: ''` 또는 `transcript: '오,,,,,,,,,,,,,,,,'` (garbage)
+- 외부 기기(핸드폰 마이크 등)로는 정상 동작
+
+### 원인
+macOS에서 `AudioContext({ sampleRate: 16000 })`로 컨텍스트를 생성하면, `decodeAudioData`가 내부적으로 오디오를 16kHz로 리샘플링하는 과정에서 사실상 무음 신호를 생성한다. 이는 macOS + Chrome 조합의 WebAudio API 구현 버그로 추정된다.
+
+```typescript
+// 문제 코드
+const ctx = new AudioContext({ sampleRate: 16000 });
+const dec = await ctx.decodeAudioData(ab);
+// dec.getChannelData(0) → rms≈0.0001 (무음)
+```
+
+### 해결
+
+브라우저에서 WebAudio 디코딩을 완전히 포기하고, raw WebM을 서버에서 ffmpeg으로 디코딩하는 방식으로 전환.
+
+**Frontend (`useVoicePipeline.ts`)**:
+```typescript
+// 모든 Blob 누적 후 base64로 인코딩, encoding:'webm' 필드와 함께 전송
+const combined = new Blob(blobChunks.current, { type: 'audio/webm;codecs=opus' });
+const ab = await combined.arrayBuffer();
+const bytes = new Uint8Array(ab);
+let bin = '';
+for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+const b64 = btoa(bin);
+ws.send(JSON.stringify({ type: 'audio_chunk', data: b64, encoding: 'webm' }));
+```
+
+**Backend (`websocket.py`)**:
+```python
+def _ffmpeg_decode(webm_bytes: bytes, target_sr: int = 16000) -> np.ndarray:
+    proc = subprocess.run(
+        ['ffmpeg', '-y', '-i', 'pipe:0', '-f', 'f32le', '-ar', str(target_sr), '-ac', '1', 'pipe:1'],
+        input=webm_bytes, capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg decode failed: {proc.stderr.decode()[:400]}")
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
+```
+
+결과: rms가 정상 범위(0.05~0.2)로 복구, STT 정상 작동 ✅
+
+---
+
+## 11. Ollama 첫 응답 60초+ 지연
+
+### 증상
+- 서버 시작 후 첫 번째 LLM 요청에서 `httpx.ReadTimeout` 발생
+- 20초, 60초 timeout을 설정해도 여전히 실패
+
+### 원인
+Ollama가 서버에 로드되어 있지 않을 때 첫 번째 API 요청이 모델 로딩 + 프롬프트 평가 + 생성을 모두 처리해야 한다. qwen2.5:1.5b 모델이 CPU에서 로드되는 시간이 30~90초로, 기본 timeout을 초과한다.
+
+### 해결
+
+1. **서버 startup 워밍업**: 백엔드 시작 시 짧은 메시지로 모델을 미리 로드
+
+```python
+@app.on_event("startup")
+async def _warmup_ollama():
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(
+            "http://localhost:11434/api/chat",
+            json={"model": "qwen2.5:1.5b", "messages": [{"role":"user","content":"안녕"}],
+                  "stream": False, "keep_alive": -1, "options": {"num_predict": 20}},
+        )
+```
+
+2. **keep_alive: -1**: 모델을 메모리에 영구 상주 (Ollama 기본값은 5분 후 언로드)
+
+3. **timeout 90s**: 워밍업 실패해도 앱은 시작되도록 try/except로 처리
+
+결과: 워밍업 후 두 번째 요청부터 5~15초 내에 응답 ✅
+
+---
+
+## 12. Ollama 한국어 응답에 영어/한자/베트남어 혼용
+
+### 증상
+- `llama3.2`, `llama3.2:1b` 사용 시 한국어 응답 중간에 영어, 베트남어, 중국 한자 혼입
+- system prompt에 "한국어로만" 지시해도 효과 없음
+
+### 원인
+`llama3.2` 시리즈는 Meta의 multilingual 모델로, 짧은 한국어 context에서 언어 스위칭이 빈번하다. `num_predict`를 낮게 제한할수록 불완전한 문장에서 언어 혼용이 심해진다.
+
+### 해결
+
+`qwen2.5:1.5b`로 전환 — Alibaba의 한국어 지원에 특화된 1.5B 경량 모델.
+
+```bash
+ollama pull qwen2.5:1.5b
+```
+
+System prompt에 명시적 언어 제한 강화:
+```python
+_SYSTEM_PROMPT = (
+    "당신은 따뜻하고 공감 능력이 뛰어난 AI 음성 어시스턴트입니다. "
+    "반드시 한국어로만 답변하세요. 영어, 한자, 다른 언어는 절대 사용하지 마세요. "
+    ...
+)
+```
+
+결과: 한국어 전용 응답 안정적으로 생성됨 ✅
+
+---
+
+## 13. qwen2.5:1.5b 한국어 응답에 漢字 누출
+
+### 증상
+- qwen2.5:1.5b로 전환 후에도 한국어 응답에 中文 한자가 섞여 출력됨
+- 예: `못忍受하는 거예요`, `放松하고 싶어요`, `聊聊 해요`
+- system prompt에 "한자 사용 금지" 명시해도 모델 레벨에서 완전히 차단 불가
+
+### 원인
+qwen2.5는 Alibaba의 중국어 학습 데이터 비중이 높아, 한국어 응답 생성 시 CJK 문자를 섞는 경향이 있다. 특히 짧은 컨텍스트에서 `num_predict` 제한이 있을 때 불완전한 토큰 완성 과정에서 한자가 누출된다.
+
+### 해결
+
+LLM 응답 후 CJK 유니코드 범위를 정규식으로 제거하는 후처리 함수 추가:
+
+```python
+_CJK_RE = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')
+
+def _clean_response(text: str, reply_language: str) -> str:
+    if reply_language in ("ko", "en"):
+        text = _CJK_RE.sub('', text)
+        text = re.sub(r'  +', ' ', text).strip()
+    return text
+```
+
+- 한국어(`ko`), 영어(`en`) 응답에만 적용 (일본어, 중국어 응답은 통과)
+- 제거 후 다중 공백을 단일 공백으로 정리
+
+결과: 한국어/영어 응답에서 한자 누출 완전 제거 ✅
+
+---
+
+## 14. DuckDuckGo 검색 태그가 AI 응답에 그대로 출력됨
+
+### 증상
+- 감정적 대화 중에도 `[검색 결과]` 태그 문자열이 AI 응답에 그대로 출력됨
+- 예: "오늘 힘들었어" → AI: `[검색 결과] ... 힘드셨군요`
+- 응답 품질 저하 및 부자연스러운 대화 흐름
+
+### 원인
+DuckDuckGo Instant Answer API 호출 결과를 `[검색 결과]` 태그로 LLM 컨텍스트에 주입했을 때, qwen2.5:1.5b가 태그 자체를 응답에 포함시키는 경향이 있었다. 또한 DDG 검색이 감정 대화 키워드에도 발동되어 무관한 검색 결과가 주입되었다.
+
+### 해결
+
+DuckDuckGo 검색을 완전히 비활성화하고, 날씨 검색만 유지:
+
+```python
+async def search_if_needed(query: str) -> Optional[str]:
+    if _WEATHER_KW.search(query):
+        result = await fetch_weather(query)
+        if result:
+            return f"[실시간 날씨] {result}"
+    return None  # DDG 검색 비활성화
+```
+
+날씨 검색은 Open-Meteo API를 사용하며, 실측 구조화 데이터이므로 LLM이 태그 없이 자연스럽게 변환한다.
+
+결과: 태그 오염 없이 날씨 쿼리에만 검색 결과 주입 ✅

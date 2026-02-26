@@ -38,7 +38,7 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function AIBubble({ text, emotion }: { text: string; emotion: EmotionResult | null }) {
+function AIBubble({ text, emotion, name }: { text: string; emotion: EmotionResult | null; name: string }) {
   const label  = emotion?.emotion_label ?? 'neutral';
   const cfg    = EMOTION_CONFIG[label];
   return (
@@ -55,7 +55,7 @@ function AIBubble({ text, emotion }: { text: string; emotion: EmotionResult | nu
           {text}
         </div>
         <p className="text-[10px] mt-1 pl-1 font-medium" style={{ color: cfg.primary }}>
-          {cfg.emoji} AI {emotion ? `(${cfg.label})` : ''}
+          {cfg.emoji} {name} {emotion ? `(${cfg.label})` : ''}
         </p>
       </div>
     </div>
@@ -72,7 +72,7 @@ export default function Home() {
   const [lastMetrics, setLastMetrics] = useState<PipelineMetrics | null>(null);
   const bottomRef                  = useRef<HTMLDivElement>(null);
 
-  const { state, startRecording, stopRecording, processFile, reset, continueConversation } =
+  const { state, micStream, startRecording, stopRecording, processFile, reset, continueConversation } =
     useVoicePipeline(voice, 'ko');
 
   // After 1st turn completes, keep showing last emotion/metrics while idle
@@ -140,7 +140,7 @@ export default function Home() {
       </div>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <header className="relative z-10 flex items-center justify-between px-5 py-4 sticky top-0"
+      <header className="relative z-30 flex items-center justify-between px-5 py-4 sticky top-0"
               style={{ background: 'rgba(242,242,247,0.85)', backdropFilter: 'blur(12px)',
                        borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
         <div className="flex items-center gap-2.5">
@@ -152,7 +152,7 @@ export default function Home() {
           >
             🎙
           </motion.div>
-          <span className="text-sm font-bold tracking-tight text-zinc-800">Voice Engine</span>
+          <span className="text-sm font-bold tracking-tight text-zinc-800">Emotion Aware AI Voice Engine</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -249,7 +249,7 @@ export default function Home() {
                 {turns.map(turn => (
                   <div key={turn.id} className="flex flex-col gap-2">
                     {turn.user && <UserBubble text={turn.user} />}
-                    {turn.ai   && <AIBubble  text={turn.ai}   emotion={turn.emotion} />}
+                    {turn.ai   && <AIBubble  text={turn.ai}   emotion={turn.emotion} name={voice} />}
                   </div>
                 ))}
 
@@ -269,7 +269,7 @@ export default function Home() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                   >
-                    <AIBubble text={state.aiResponse} emotion={state.emotion} />
+                    <AIBubble text={state.aiResponse} emotion={state.emotion} name={voice} />
                   </motion.div>
                 )}
 
@@ -280,7 +280,7 @@ export default function Home() {
 
           {/* ── 2. RECORDING (중단) ────────────────────────────────────── */}
           <section className="flex flex-col items-center gap-5 py-8">
-            <WaveformVisualizer stream={null} isActive={isRecording} color={accent} />
+            <WaveformVisualizer stream={micStream} isActive={isRecording} color={accent} />
 
             {/* VAD bar */}
             <AnimatePresence>

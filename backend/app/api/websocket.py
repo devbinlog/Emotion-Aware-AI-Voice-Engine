@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import subprocess
 import time
 import uuid
 from typing import List, Optional
@@ -43,6 +44,49 @@ from app.utils.logging import logger
 from app.config import settings
 
 ws_router = APIRouter()
+
+# ── Voice → reply language ────────────────────────────────────────────────────
+_VOICE_LANG: dict = {
+    "Yuna": "ko",
+    "Kyoko": "ja",
+    "Meijia": "zh", "Tingting": "zh", "Sinji": "zh",
+}
+
+# ── Voice → character name (shown in LLM identity) ────────────────────────────
+_VOICE_NAME: dict = {
+    "Yuna":     "유나",
+    "Kyoko":    "Kyoko",
+    "Meijia":   "Meijia",
+    "Tingting": "Tingting",
+    "Sinji":    "Sinji",
+}
+
+def _voice_reply_lang(voice: str) -> str:
+    """Return ISO language code for the given TTS voice name."""
+    return _VOICE_LANG.get(voice, "en")
+
+def _voice_character_name(voice: str) -> str:
+    """Return character name for the given TTS voice name."""
+    return _VOICE_NAME.get(voice, voice)  # fallback: use voice name as-is
+
+
+def _ffmpeg_decode(webm_bytes: bytes, target_sr: int = 16000) -> np.ndarray:
+    """Decode WebM/Opus bytes → float32 PCM at target_sr using ffmpeg."""
+    proc = subprocess.run(
+        [
+            'ffmpeg', '-y',
+            '-i', 'pipe:0',
+            '-f', 'f32le',
+            '-ar', str(target_sr),
+            '-ac', '1',
+            'pipe:1',
+        ],
+        input=webm_bytes,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg decode failed: {proc.stderr.decode()[:400]}")
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
 
 # ── Service singletons (shared across sessions) ──────────────────────────────
 _vad:     Optional[VADService]     = None
@@ -107,10 +151,17 @@ async def voice_ws(ws: WebSocket):
 
             # ── audio_chunk ──────────────────────────────────────────────────
             elif t == "audio_chunk":
-                pcm_b64 = msg.get("data", "")
-                if not pcm_b64:
+                raw_data = msg.get("data", "")
+                if not raw_data:
                     continue
-                chunk = np.frombuffer(base64.b64decode(pcm_b64), dtype=np.float32).copy()
+
+                encoding = msg.get("encoding", "pcm")
+                if encoding == "webm":
+                    webm_bytes = base64.b64decode(raw_data)
+                    chunk = await asyncio.to_thread(_ffmpeg_decode, webm_bytes, 16000)
+                else:
+                    chunk = np.frombuffer(base64.b64decode(raw_data), dtype=np.float32).copy()
+
                 audio_buffer.append(chunk)
 
                 # Real-time VAD on each incoming chunk
@@ -133,6 +184,9 @@ async def voice_ws(ws: WebSocket):
                 full    = np.concatenate(audio_buffer).astype(np.float32)
                 audio_buffer.clear()
                 metrics.record_audio_duration(len(full) / sr * 1000)
+
+                rms = float(np.sqrt(np.mean(full ** 2))) if len(full) > 0 else 0.0
+                logger.info(f"[WS {sid}] audio: duration={len(full)/sr:.2f}s samples={len(full)} rms={rms:.4f}")
 
                 # 1 ── VAD (full-audio segment detection)
                 t0 = time.time()
@@ -168,11 +222,16 @@ async def voice_ws(ws: WebSocket):
                 })
 
                 # 4 ── AI response (LLM with fallback) + TTS
+                voice = config.get("voice", "Yuna")
+                reply_lang     = _voice_reply_lang(voice)
+                character_name = _voice_character_name(voice)
                 ai_text = await get_llm_response(
                     transcript        = stt_result["transcript"],
                     emotion_label     = emo["emotion_label"],
                     intensity         = emo["intensity"],
                     conversation_history = conversation_history,
+                    reply_language    = reply_lang,
+                    character_name    = character_name,
                 )
                 logger.info(f"[WS {sid}] ai_response='{ai_text}'")
                 await _send(ws, {"type": "ai_response", "text": ai_text})
